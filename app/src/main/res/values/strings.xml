@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">PixelRCLK</string>
+    <string name="tool_brush">Кисть</string>
+    <string name="tool_eraser">Ластик</string>
+    <string name="tool_fill">Заливка</string>
+    <string name="tool_eyedropper">Пипетка</string>
+    <string name="tool_layers">Слои</string>
+    <string name="action_undo">Отменить</string>
+    <string name="action_redo">Повторить</string>
+    <string name="action_export_png">Экспорт PNG</string>
+    <string name="action_new_canvas">Новый холст</string>
+    <string name="action_import_photo">Импорт фото</string>
+    <string name="action_reset_zoom">Сброс масштаба</string>
+    <string name="action_toggle_grid">Сетка пикселей</string>
+    <string name="layers_title">Управление слоями</string>
+    <string name="layers_add">Новый слой</string>
+    <string name="layers_merge_down">Объединить вниз</string>
+    <string name="layers_duplicate">Дублировать</string>
+    <string name="layers_delete">Удалить</string>
+    <string name="layers_opacity">Непрозрачность</string>
+    <string name="color_picker_title">Палитра и альфа-канал</string>
+    <string name="export_success">альфа-каналом сохранено в галерее</string>
+    <string name="export_error">Не удалось сохранить PNG</string>
+    <string name="tab_editor">Редактор</string>
+    <string name="tab_resizer">Ресайзер</string>
+    <string name="tab_overlay">Наложение</string>
+    <string name="tab_compress">Сжатие</string>
+</resources>
