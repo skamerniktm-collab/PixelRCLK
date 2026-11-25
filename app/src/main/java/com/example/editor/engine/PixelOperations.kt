@@ -7,6 +7,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 object PixelOperations {
 
@@ -349,8 +350,10 @@ object PixelOperations {
         startY: Int,
         tolerance: Int = 0
     ): BooleanArray {
+        if (width <= 0 || height <= 0) return BooleanArray(0)
         val total = width * height
         val mask = BooleanArray(total)
+        if (pixels.size < total) return mask
         if (startX !in 0 until width || startY !in 0 until height) return mask
 
         val startIdx = startY * width + startX
@@ -367,32 +370,20 @@ object PixelOperations {
             val x = idx % width
             val y = idx / width
 
-            if (x > 0) {
-                val left = idx - 1
-                if (!mask[left] && colorsMatch(pixels[left], targetColor, tolerance)) {
-                    mask[left] = true
-                    queue[tail++] = left
-                }
-            }
-            if (x + 1 < width) {
-                val right = idx + 1
-                if (!mask[right] && colorsMatch(pixels[right], targetColor, tolerance)) {
-                    mask[right] = true
-                    queue[tail++] = right
-                }
-            }
-            if (y > 0) {
-                val up = idx - width
-                if (!mask[up] && colorsMatch(pixels[up], targetColor, tolerance)) {
-                    mask[up] = true
-                    queue[tail++] = up
-                }
-            }
-            if (y + 1 < height) {
-                val down = idx + width
-                if (!mask[down] && colorsMatch(pixels[down], targetColor, tolerance)) {
-                    mask[down] = true
-                    queue[tail++] = down
+            val minNx = max(0, x - 1)
+            val maxNx = min(width - 1, x + 1)
+            val minNy = max(0, y - 1)
+            val maxNy = min(height - 1, y + 1)
+
+            for (ny in minNy..maxNy) {
+                val rowOffset = ny * width
+                for (nx in minNx..maxNx) {
+                    if (nx == x && ny == y) continue
+                    val nIdx = rowOffset + nx
+                    if (!mask[nIdx] && wandColorsMatch(pixels[nIdx], targetColor, tolerance)) {
+                        mask[nIdx] = true
+                        queue[tail++] = nIdx
+                    }
                 }
             }
         }
@@ -821,5 +812,37 @@ object PixelOperations {
 
         val maxDiff = max(max(abs(a1 - a2), abs(r1 - r2)), max(abs(g1 - g2), abs(b1 - b2)))
         return maxDiff <= tolerance
+    }
+
+    /**
+     * Perceptual redmean color comparison for Magic Wand selection, comparing candidate pixel
+     * strictly against the tapped seed pixel while stopping cleanly at transparency boundaries.
+     */
+    private fun wandColorsMatch(candidate: Int, target: Int, tolerance: Int): Boolean {
+        if (candidate == target) return true
+        val a1 = (candidate ushr 24) and 0xFF
+        val a2 = (target ushr 24) and 0xFF
+        if (a1 == 0 && a2 == 0) return true
+        if (a1 == 0 || a2 == 0) return false
+        if (tolerance <= 0) return false
+        if (abs(a1 - a2) > tolerance) return false
+
+        val r1 = (candidate ushr 16) and 0xFF
+        val g1 = (candidate ushr 8) and 0xFF
+        val b1 = candidate and 0xFF
+
+        val r2 = (target ushr 16) and 0xFF
+        val g2 = (target ushr 8) and 0xFF
+        val b2 = target and 0xFF
+
+        val rMean = (r1 + r2) * 0.5f
+        val dr = (r1 - r2).toFloat()
+        val dg = (g1 - g2).toFloat()
+        val db = (b1 - b2).toFloat()
+        val wr = 2f + rMean / 256f
+        val wg = 4f
+        val wb = 2f + (255f - rMean) / 256f
+        val distance = sqrt((wr * dr * dr + wg * dg * dg + wb * db * db) / 9f)
+        return distance <= tolerance.toFloat()
     }
 }

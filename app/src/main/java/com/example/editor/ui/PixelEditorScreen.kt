@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.CollectionsBookmark
 import androidx.compose.material.icons.rounded.Compress
@@ -74,6 +75,8 @@ import com.example.editor.ui.components.LayersSheet
 import com.example.editor.ui.components.NewCanvasDialog
 import com.example.editor.ui.components.PixelCanvasView
 import com.example.editor.ui.components.RecolorSelectionDialog
+import com.example.bgremover.ui.BgRemoverScreen
+import com.example.bgremover.viewmodel.BgRemoverViewModel
 import com.example.compress.ui.CompressScreen
 import com.example.compress.viewmodel.CompressViewModel
 import com.example.editor.viewmodel.PixelEditorViewModel
@@ -93,6 +96,7 @@ fun LilacStudioScreen(
     editorViewModel: PixelEditorViewModel = viewModel(),
     resizerViewModel: ResizerViewModel = viewModel(),
     overlayViewModel: OverlayViewModel = viewModel(),
+    bgRemoverViewModel: BgRemoverViewModel = viewModel(),
     compressViewModel: CompressViewModel = viewModel()
 ) {
     val appContext = LocalContext.current
@@ -187,6 +191,7 @@ fun LilacStudioScreen(
                                         AppTab.EDITOR -> Icons.Rounded.Brush
                                         AppTab.RESIZER -> Icons.Rounded.PhotoSizeSelectLarge
                                         AppTab.OVERLAY -> Icons.Rounded.Layers
+                                        AppTab.BG_REMOVER -> Icons.Rounded.AutoFixHigh
                                         AppTab.COMPRESS -> Icons.Rounded.Compress
                                         AppTab.PROJECTS -> Icons.Rounded.CollectionsBookmark
                                     },
@@ -258,6 +263,21 @@ fun LilacStudioScreen(
                     OverlayScreen(
                         viewModel = overlayViewModel,
                         onGetEditorCanvas = { editorViewModel.exportCurrentCanvasForResizer() }
+                    )
+                }
+
+                AppTab.BG_REMOVER -> {
+                    BgRemoverScreen(
+                        viewModel = bgRemoverViewModel,
+                        onImportFromEditor = {
+                            val (w, h, pixels) = editorViewModel.exportCurrentCanvasForResizer()
+                            bgRemoverViewModel.addFromEditorCanvas(
+                                name = "canvas_${w}x${h}",
+                                width = w,
+                                height = h,
+                                pixels = pixels
+                            )
+                        }
                     )
                 }
 

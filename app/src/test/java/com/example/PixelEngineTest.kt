@@ -1,6 +1,9 @@
 package com.example
 
 import androidx.compose.ui.geometry.Offset
+import com.example.bgremover.engine.BgRemoverEngine
+import com.example.bgremover.model.BgRemovalMethod
+import com.example.bgremover.model.BgRemoverSettings
 import com.example.compress.engine.PngCompressor
 import com.example.compress.model.CompressPreset
 import com.example.compress.model.formatSavingsPercent
@@ -223,6 +226,80 @@ class PixelEngineTest {
         assertTrue(wandMask[1 * 4 + 2])
         assertTrue(wandMask[2 * 4 + 2])
         assertFalse(wandMask[0])
+    }
+
+    @Test
+    fun `magic wand uses 8-connectivity passes blue dithering at tolerance 48 and stops at other colors and transparency`() {
+        val w = 8
+        val h = 6
+        val darkBlue = 0xFF161E6E.toInt()       // (22, 30, 110)
+        val ditherBlue = 0xFF2838AE.toInt()     // (40, 56, 174) -> redmean dist ~42 <= 48
+        val brightBlue = 0xFF4860F0.toInt()     // (72, 96, 240) -> redmean dist ~85 > 48
+        val gray = 0xFF8E8E8E.toInt()
+        val darkRed = 0xFF731212.toInt()
+        val transparent = 0x00000000
+
+        // Build 8x6 test image:
+        // Left connected blue checkerboard (cols 0..3, rows 1..4) bounded by gray, red, brightBlue, and transparent
+        // Disconnected identical darkBlue island at col 6..7, row 2..3
+        val pixels = IntArray(w * h) { transparent }
+        for (y in 1..4) {
+            for (x in 0..3) {
+                pixels[y * w + x] = if ((x + y) % 2 == 0) darkBlue else ditherBlue
+            }
+        }
+        // Surround / border with other colors and transparency
+        pixels[0 * w + 0] = gray
+        pixels[0 * w + 1] = gray
+        pixels[0 * w + 2] = darkRed
+        pixels[0 * w + 3] = brightBlue
+        pixels[1 * w + 4] = gray
+        pixels[2 * w + 4] = darkRed
+        pixels[3 * w + 4] = transparent
+        pixels[4 * w + 4] = brightBlue
+        // Disconnected identical darkBlue island across col 4..5
+        pixels[2 * w + 6] = darkBlue
+        pixels[3 * w + 7] = darkBlue // diagonal neighbor to (6, 2)
+
+        // With tolerance = 0, 8-connectivity still traverses diagonal darkBlue checkerboard squares!
+        val maskTol0 = PixelOperations.createMagicWandMask(pixels, w, h, 0, 1, tolerance = 0)
+        assertTrue(maskTol0[1 * w + 0]) // darkBlue (0,1)? wait (0+1)%2==1 -> ditherBlue, so check (1,1) is darkBlue
+        assertTrue(maskTol0[2 * w + 1]) // ditherBlue at (1,2)
+        assertFalse(maskTol0[1 * w + 1]) // darkBlue doesn't match ditherBlue at tol 0
+        assertTrue(maskTol0[3 * w + 2]) // diagonal ditherBlue reachable via 8-connectivity
+
+        // With tolerance = 48, wand passes through the entire connected dithered blue checkerboard
+        val maskTol48 = PixelOperations.createMagicWandMask(pixels, w, h, 0, 1, tolerance = 48)
+        for (y in 1..4) {
+            for (x in 0..3) {
+                assertTrue("Expected dithered blue at ($x,$y) to be selected", maskTol48[y * w + x])
+            }
+        }
+        // Must stop on gray, dark red, bright blue highlight, transparency, and NOT jump to disconnected island
+        assertFalse(maskTol48[0 * w + 0])
+        assertFalse(maskTol48[0 * w + 2])
+        assertFalse(maskTol48[0 * w + 3])
+        assertFalse(maskTol48[1 * w + 4])
+        assertFalse(maskTol48[2 * w + 4])
+        assertFalse(maskTol48[3 * w + 4])
+        assertFalse(maskTol48[4 * w + 4])
+        assertFalse(maskTol48[2 * w + 6])
+        assertFalse(maskTol48[3 * w + 7])
+
+        // Strict comparison against tapped pixel (no color drift along a gradient chain):
+        // Step by +25 per pixel along X: seed (20,30,100) -> +25 -> +50 -> +75 -> +100
+        val grad = IntArray(5) { x ->
+            val r = 20 + x * 25
+            val g = 30 + x * 25
+            val b = 100 + x * 25
+            (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val gradMask = PixelOperations.createMagicWandMask(grad, 5, 1, 0, 0, tolerance = 48)
+        assertTrue(gradMask[0])
+        assertTrue(gradMask[1])   // dist ~25 <= 48
+        assertFalse(gradMask[2])  // dist ~50 > 48 from seed (would pass if compared to pixel[1]!)
+        assertFalse(gradMask[3])
+        assertFalse(gradMask[4])
     }
 
     @Test
@@ -753,5 +830,128 @@ class PixelEngineTest {
         assertTrue(rotatedTop.top)
         assertFalse(rotatedTop.left)
         assertFalse(rotatedTop.bottom)
+    }
+
+    @Test
+    fun `bgRemover edge flood preserves subject and respects inner hole toggle`() {
+        val w = 32
+        val h = 32
+        val whiteBg = 0xFFFFFFFF.toInt()
+        val subjectRed = 0xFFD32F2F.toInt()
+        val pixels = IntArray(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            // Subject square x in 8..23, y in 8..23 with an enclosed white hole in x in 14..17, y in 14..17
+            val inSubject = x in 8..23 && y in 8..23
+            val inHole = x in 14..17 && y in 14..17
+            if (inSubject && !inHole) subjectRed else whiteBg
+        }
+
+        val noInnerHoles = BgRemoverEngine.removeBackground(
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            settings = BgRemoverSettings(
+                method = BgRemovalMethod.EDGE_FLOOD,
+                sensitivity = 25,
+                edgeSoftness = 0,
+                removeInnerHoles = false
+            )
+        )
+        assertEquals(whiteBg, noInnerHoles.detectedBgColorArgb)
+        // Outer corner must be transparent
+        assertEquals(0, (noInnerHoles.pixels[0] ushr 24) and 0xFF)
+        // Subject border stays opaque
+        assertEquals(255, (noInnerHoles.pixels[10 * w + 10] ushr 24) and 0xFF)
+        // Enclosed hole stays opaque when removeInnerHoles = false
+        assertEquals(255, (noInnerHoles.pixels[15 * w + 15] ushr 24) and 0xFF)
+
+        val withInnerHoles = BgRemoverEngine.removeBackground(
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            settings = BgRemoverSettings(
+                method = BgRemovalMethod.EDGE_FLOOD,
+                sensitivity = 25,
+                edgeSoftness = 0,
+                removeInnerHoles = true
+            )
+        )
+        // Enclosed white hole becomes transparent when removeInnerHoles = true
+        assertEquals(0, (withInnerHoles.pixels[15 * w + 15] ushr 24) and 0xFF)
+        assertEquals(255, (withInnerHoles.pixels[10 * w + 10] ushr 24) and 0xFF)
+        assertTrue(withInnerHoles.transparentPercent > noInnerHoles.transparentPercent)
+    }
+
+    @Test
+    fun `bgRemover color key and smart subject remove background and brush restores or erases`() {
+        val w = 32
+        val h = 32
+        val chromaGreen = 0xFF00C853.toInt()
+        val subjectBlue = 0xFF1565C0.toInt()
+        val pixels = IntArray(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if (x in 10..21 && y in 10..21) subjectBlue else chromaGreen
+        }
+
+        val keyResult = BgRemoverEngine.removeBackground(
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            settings = BgRemoverSettings(
+                method = BgRemovalMethod.COLOR_KEY,
+                sensitivity = 30,
+                edgeSoftness = 10,
+                targetColorArgb = chromaGreen
+            )
+        )
+        assertEquals(0, (keyResult.pixels[2 * w + 2] ushr 24) and 0xFF)
+        assertEquals(255, (keyResult.pixels[15 * w + 15] ushr 24) and 0xFF)
+
+        val smartResult = BgRemoverEngine.removeBackground(
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            settings = BgRemoverSettings(
+                method = BgRemovalMethod.SMART_SUBJECT,
+                sensitivity = 35,
+                edgeSoftness = 15,
+                removeInnerHoles = false
+            )
+        )
+        assertEquals(0, (smartResult.pixels[1 * w + 1] ushr 24) and 0xFF)
+        assertEquals(255, (smartResult.pixels[15 * w + 15] ushr 24) and 0xFF)
+
+        val editable = smartResult.pixels.copyOf()
+        // Erase center of subject
+        BgRemoverEngine.applyBrushStroke(
+            targetPixels = editable,
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            x0 = 15f,
+            y0 = 15f,
+            x1 = 16f,
+            y1 = 16f,
+            radiusPx = 2.5f,
+            restore = false
+        )
+        assertEquals(0, (editable[15 * w + 15] ushr 24) and 0xFF)
+
+        // Restore center of subject back from original pixels
+        BgRemoverEngine.applyBrushStroke(
+            targetPixels = editable,
+            originalPixels = pixels,
+            width = w,
+            height = h,
+            x0 = 15f,
+            y0 = 15f,
+            x1 = 16f,
+            y1 = 16f,
+            radiusPx = 2.5f,
+            restore = true
+        )
+        assertEquals(subjectBlue, editable[15 * w + 15])
     }
 }

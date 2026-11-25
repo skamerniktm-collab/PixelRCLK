@@ -24,5 +24,6 @@
     <string name="tab_editor">Редактор</string>
     <string name="tab_resizer">Ресайзер</string>
     <string name="tab_overlay">Наложение</string>
+    <string name="tab_bg_remover">Без фона</string>
     <string name="tab_compress">Сжатие</string>
 </resources>

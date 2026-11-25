@@ -7,6 +7,7 @@ enum class AppTab(val label: String) {
     EDITOR("Редактор"),
     RESIZER("Ресайзер"),
     OVERLAY("Наложение"),
+    BG_REMOVER("Без фона"),
     COMPRESS("Сжатие"),
     PROJECTS("Проекты")
 }
